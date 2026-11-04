@@ -22,6 +22,7 @@ var blocking := false
 var attack_cooldown := 0.0
 var attack_delay := -1.0
 var swing_time := 0.0
+var swing_duration := 0.28
 var invulnerability := 0.0
 var jumps_used := 0
 var pitch := 0.0
@@ -82,7 +83,7 @@ func _physics_process(delta: float) -> void:
 	attack_cooldown = maxf(0, attack_cooldown - delta)
 	invulnerability = maxf(0, invulnerability - delta)
 	stamina = minf(100.0, stamina + delta * (12.0 if blocking else 30.0))
-	blocking = Input.is_action_pressed("block") and not item_id.is_empty() and stamina > 8.0 and attack_cooldown <= 0.1
+	blocking = Input.is_action_pressed("block") and not item_id.is_empty() and stamina > 8.0 and attack_cooldown <= 0.1 / _flow_multiplier()
 	if Input.is_action_pressed("attack"):
 		begin_attack()
 	if attack_delay >= 0.0:
@@ -116,8 +117,7 @@ func _update_movement(delta: float) -> void:
 		game.audio.tone(260.0 if jumps_used == 1 else 420.0, 0.08, 0.12)
 	var input_vector := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction := (transform.basis * Vector3(input_vector.x, 0, input_vector.y)).normalized()
-	var speed: float = SPRINT_SPEED if Input.is_action_pressed("sprint") else SPEED
-	speed *= TrialRules.FLOW_SPEED[game.flow_stage]
+	var speed := _movement_speed(Input.is_action_pressed("sprint"))
 	if blocking:
 		speed *= 0.65
 	var acceleration: float = ACCELERATION if is_on_floor() else AIR_ACCELERATION
@@ -136,7 +136,7 @@ func _update_view(delta: float) -> void:
 	var target_fov: float = 91.0 + clampf(horizontal_speed - SPEED, 0.0, 9.0) * 1.3
 	camera.fov = lerpf(camera.fov, target_fov, delta * 5.0)
 	swing_time = maxf(0.0, swing_time - delta)
-	var swing := sin((1.0 - swing_time / 0.28) * PI) if swing_time > 0.0 else 0.0
+	var swing := sin((1.0 - swing_time / swing_duration) * PI) if swing_time > 0.0 else 0.0
 	hand.position = hand.position.lerp(Vector3(0.05, -0.29, -0.54) if blocking else Vector3(0.44 - swing * 0.48, -0.52 + bob + swing * 0.12, -0.72 - swing * 0.2), delta * 20.0)
 	hand.rotation = Vector3(-0.45, 0, -1.15) if blocking else Vector3(-0.2 + swing * 0.6, -swing * 0.8, 0.18 - swing * 1.6)
 
@@ -146,10 +146,18 @@ func begin_attack() -> void:
 	if item_id.is_empty():
 		game.notify("Find equipment. Everything you use comes from the lab.")
 		return
-	attack_cooldown = Equipment.definition(item_id).cooldown
-	attack_delay = 0.1
-	swing_time = 0.28
+	var attack_speed := _flow_multiplier()
+	attack_cooldown = float(Equipment.definition(item_id).cooldown) / attack_speed
+	attack_delay = 0.1 / attack_speed
+	swing_duration = 0.28 / attack_speed
+	swing_time = swing_duration
 	game.audio.tone(110.0, 0.09, 0.16, true)
+
+func _flow_multiplier() -> float:
+	return TrialRules.FLOW_SPEED[clampi(game.flow_stage, 0, TrialRules.FLOW_SPEED.size() - 1)]
+
+func _movement_speed(sprinting: bool) -> float:
+	return (SPRINT_SPEED if sprinting else SPEED) * _flow_multiplier()
 
 func _resolve_attack() -> void:
 	if item_id.is_empty():
@@ -196,14 +204,16 @@ func receive_damage(amount: float, source: Vector3) -> void:
 			_build_hand()
 			game.notify("Equipment broken. Scavenge a replacement.")
 	else:
-		game.flow_interrupted()
 		game.audio.tone(62.0, 0.22, 0.3, true)
 		game.hud.damage_flash = 0.65
 	invulnerability = 0.35
 	if game.reviving:
 		game.revival_time = maxf(0.0, game.revival_time - (0.5 if blocked else 1.5))
 		return
+	var previous_health := health
 	health = maxf(0.0, health - amount)
+	if health < previous_health:
+		game.flow_interrupted()
 	if health <= 0.0:
 		game.begin_revival()
 

@@ -2,17 +2,23 @@ class_name TrialRules
 extends RefCounted
 ## All prototype balancing lives here. Times are seconds, distances are meters.
 
+
 const ROOM_NAMES: Array[String] = ["01 / NEURAL RECOVERY", "02 / CONTAINMENT", "03 / TRANSIT LOCK"]
 const ROOM_TARGETS: Array[float] = [60.0, 80.0, 90.0]
-const ROOM_ENEMIES: Array[int] = [3, 5, 6]
-const FLOW_KILLS: Array[int] = [2, 3, 4]
-const FLOW_WINDOWS: Array[float] = [12.0, 10.0, 9.0]
-const FLOW_SPEED: Array[float] = [1.0, 1.12, 1.25, 1.4]
+const ROOM_ENEMIES: Array[int] = [7, 11, 7]
+
+const FLOW_KILLS: Array[int] = [3, 4, 5, 6, 7]
+const FLOW_WINDOWS: Array[float] = [10.0, 8.0, 7.0, 6.0, 5.0]
+const FLOW_SPEED: Array[float] = [1.0, 1.1, 1.25, 1.45, 1.7, 2.0]
+
 const REVIVAL_KILLS: Array[int] = [1, 2, 3, 5, 8, 13]
+
 const RANKS: Array[String] = ["SSS", "SS", "S", "A", "B", "C", "D", "F"]
 const RANK_RATIOS: Array[float] = [0.5, 2.0 / 3.0, 5.0 / 6.0, 1.0, 1.25, 1.5, 2.0, INF]
+
 const BASE_REVIVAL_SECONDS := 5.0
-const REVIVAL_SECONDS: Array[float] = [7.5, 7.0, 6.5, 6.0, 5.5, 5.0, 5.0, 5.0]
+const REVIVAL_SECONDS: Array[float] = [16.0, 14.0, 12.0, 10.0, 9.0, 8.0, 7.0, 6.0]
+
 
 static func rank_index(seconds: float, target: float) -> int:
 	for i in RANK_RATIOS.size():
