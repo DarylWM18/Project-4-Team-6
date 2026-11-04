@@ -14,8 +14,19 @@ and presentation checks that automated state/physics tests do not replace.
 - Finish the first trial. Check its rank and walk through the released gate.
 - In Containment, inspect broken chambers and read the Subject 06 archive file.
 - Confirm the second lock requires both the file and all five enemies to be cleared.
-- Allow fatal damage with an enemy still alive. Defeat it before the signal timer
-  expires and check the recovery feedback. On a second activation, two kills are due.
+- Allow fatal damage with an enemy still alive. Confirm the short impact pause,
+  blue lighting, heartbeat, and Neural Stability display before the countdown.
+- While unarmed during revival, turn away from a tool. Follow the screen guide,
+  turn back toward its beacon, and collect it. The guide should then disappear.
+- Hold a guard through an attack: signal time should only lose its natural decay.
+  Release and press guard just before the next frontal hit: check the +0.5s cue.
+- While a revival requires multiple kills, kill a subject and confirm the +1.5s
+  reward. Repeated rewards should never exceed the starting allowance.
+- Finish a revival near another subject winding up a lunge. Confirm the expanding
+  pulse interrupts it, pushes it away, refills guard stamina, and gives protection.
+- On repeated activations, check the escalation and the next-return HUD preview.
+  With only one subject left, recovery should require only that remaining subject.
+- Check a lower-rank trial still grants 10 seconds next room; SSS should grant 13.
 - Reach Transit, find the security baton, and inspect the failed subject near exit.
 - Try the override before clearing the trial. It should remain locked.
 - Clear Transit and use the override. Confirm victory, three room ranks, total time,

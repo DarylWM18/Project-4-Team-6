@@ -6,6 +6,7 @@ var hum: AudioStreamPlayer
 var voices: Array[AudioStreamPlayer] = []
 var voice_index := 0
 var enabled := true
+var heartbeat_stream: AudioStreamWAV
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -30,6 +31,27 @@ func _ready() -> void:
 	hum.stream = stream
 	hum.volume_db = -21
 	hum.play()
+	heartbeat_stream = _make_heartbeat()
+
+func _make_heartbeat() -> AudioStreamWAV:
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = 22050
+	var count := int(22050 * 0.32)
+	var samples := PackedByteArray()
+	samples.resize(count * 2)
+	for i in count:
+		var t := float(i) / 22050.0
+		var sample := sin(TAU * 65 * t) * exp(-t * 35)
+		if t > 0.14:
+			sample += sin(TAU * 80 * (t - 0.14)) * exp(-(t - 0.14) * 40) * 0.65
+		samples.encode_s16(i * 2, int(sample * 0.3 * 32767))
+	stream.data = samples
+	return stream
+
+func heartbeat() -> void:
+	if enabled:
+		_play_stream(heartbeat_stream)
 
 func tone(frequency: float, duration: float, volume: float = 0.2, noise: bool = false) -> void:
 	if not enabled or voices.is_empty():
@@ -48,6 +70,11 @@ func tone(frequency: float, duration: float, volume: float = 0.2, noise: bool = 
 			sample = sample * 0.5 + randf_range(-0.5, 0.5)
 		samples.encode_s16(i * 2, int(clampf(sample * envelope * volume, -1, 1) * 32767))
 	stream.data = samples
+	_play_stream(stream)
+
+func _play_stream(stream: AudioStreamWAV) -> void:
+	if voices.is_empty():
+		return
 	var voice := voices[voice_index % voices.size()]
 	voice_index += 1
 	voice.stream = stream
@@ -66,6 +93,7 @@ func _exit_tree() -> void:
 		voice.stop()
 		voice.stream = null
 	voices.clear()
+	heartbeat_stream = null
 	if is_instance_valid(hum):
 		hum.stop()
 		hum.stream = null

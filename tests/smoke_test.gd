@@ -133,12 +133,13 @@ func _run() -> void:
 	game.player.blocking = false
 	game.player.receive_damage(50, game.player.position + Vector3.BACK)
 	check(game.reviving and game.revival_needed == 1, "fatal hit begins first revival")
+	game._process(game.revival_intro_time)
 	target.dead = true
 	game.enemy_defeated(target)
 	check(not game.reviving and game.player.health == 55, "required revival kill restores life")
 	game.begin_revival()
 	check(game.revival_needed == 2, "second revival costs two kills")
-	game.reviving = false
+	game._complete_revival()
 	# Room gates, required story file, ranking bonus, pause, and victory.
 	game.room_time = 29
 	for enemy in get_nodes_in_group("enemies"):
@@ -146,7 +147,7 @@ func _run() -> void:
 			enemy.dead = true
 	game._clear_room()
 	check(game.lab.gate_open[0], "first trial releases first gate")
-	check(game.revival_allowance == 16, "SSS grants 16 seconds next room")
+	check(game.revival_allowance == 13, "SSS grants 13 seconds next room")
 	game._enter_room(1)
 	for enemy in get_nodes_in_group("enemies"):
 		if enemy.room_index == 1:

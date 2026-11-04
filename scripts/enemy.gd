@@ -36,7 +36,7 @@ func _ready() -> void:
 	health += room_index * 6.0
 
 func _physics_process(delta: float) -> void:
-	if dead or not active or game.state != "playing":
+	if dead or not active or game.state != "playing" or game.revival_intro_time > 0.0:
 		return
 	age += delta
 	stagger = maxf(0.0, stagger - delta)
@@ -100,6 +100,22 @@ func _can_see_player() -> bool:
 	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP,
 		game.player.global_position + Vector3.UP, 1)
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+func apply_neural_pulse(source: Vector3) -> void:
+	if dead or not active:
+		return
+	var away := global_position - source
+	away.y = 0.0
+	if away.length_squared() < 0.01:
+		away = Vector3.FORWARD
+	push = away.normalized() * TrialRules.REVIVAL_PULSE_FORCE
+	stagger = TrialRules.REVIVAL_PULSE_STAGGER
+	state = "recover"
+	timer = TrialRules.REVIVAL_PULSE_STAGGER
+	hit_this_lunge = true
+	lunge_direction = Vector3.ZERO
+	model.rotation.x = 0.0
+	model.scale = Vector3.ONE
 
 func take_damage(amount: float, direction: Vector3) -> void:
 	if dead:

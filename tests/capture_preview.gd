@@ -31,6 +31,7 @@ func _capture() -> void:
 	game.player.rotation.y = -0.24
 	game.player.pitch = -0.02
 	game.room = 1
+	game._activate_room()
 	game.message_text = "Warning. Subjects have escaped containment."
 	for i in 10:
 		await process_frame
@@ -49,15 +50,31 @@ func _capture() -> void:
 	root.get_texture().get_image().save_png(output.path_join("preview-archive.png"))
 	game.resume_run()
 	game.player.health = 0
+	game.revival_uses = 1
 	game.begin_revival()
 	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png(output.path_join("preview-revival-intro.png"))
+	while game.revival_intro_time > 0.0:
+		await process_frame
+	for i in 6:
+		await process_frame
+	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(output.path_join("preview-revival.png"))
-	game.reviving = false
+	game.player.drop_item()
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png(output.path_join("preview-revival-unarmed.png"))
+	game._complete_revival()
+	for i in 4:
+		await process_frame
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png(output.path_join("preview-recovery.png"))
 	var sample_results: Array[Dictionary] = [
 		{"room": 0, "seconds": 29.0, "rank": "SSS"},
 		{"room": 1, "seconds": 49.5, "rank": "SS"},
 		{"room": 2, "seconds": 68.1, "rank": "S"}]
 	game.room_results = sample_results
+	game.total_time = 150.0
+	game.kills = 14
 	game.leaderboard = []
 	for i in 5:
 		game.leaderboard.append({"seconds": 150.0 + i * 10, "ranks": []})

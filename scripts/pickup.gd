@@ -5,6 +5,7 @@ var item_id := "wrench"
 var durability := -1.0
 var model: Node3D
 var elapsed := 0.0
+var revival_marker: Label3D
 
 func _ready() -> void:
 	collision_layer = 4
@@ -25,10 +26,19 @@ func _ready() -> void:
 	if durability < 0.0:
 		durability = Equipment.definition(item_id).durability
 	add_to_group("pickups")
+	revival_marker = WorldArt.text(self, Vector3(0, 1.0, 0), "SCAVENGE / [E]", 29, Color("ffe1a1"))
+	revival_marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	revival_marker.no_depth_test = true
+	revival_marker.visible = false
 
 func _process(delta: float) -> void:
 	elapsed += delta
 	model.position.y = sin(elapsed * 2.0) * 0.035
+	if revival_marker.visible:
+		revival_marker.position.y = 1.0 + sin(elapsed * 4.0) * 0.06
+
+func set_revival_highlight(value: bool) -> void:
+	revival_marker.visible = value
 
 func prompt() -> String:
 	var data := Equipment.definition(item_id)

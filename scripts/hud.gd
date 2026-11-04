@@ -10,6 +10,11 @@ var document_title := ""
 var document_text := ""
 var damage_flash := 0.0
 var hit_flash := 0.0
+var neural_beat := 0.0
+var recovery_flash := 0.0
+var perfect_flash := 0.0
+var revival_reward_text := ""
+var revival_reward_time := 0.0
 var font: Font = ThemeDB.fallback_font
 var pale := Color("dce8e5")
 var muted := Color("8fa8ad")
@@ -30,10 +35,19 @@ func _ready() -> void:
 	canvas.add_child(buttons)
 
 func _process(delta: float) -> void:
-	damage_flash = maxf(0.0, damage_flash - delta)
-	hit_flash = maxf(0.0, hit_flash - delta)
+	if not get_tree().paused:
+		damage_flash = maxf(0.0, damage_flash - delta)
+		hit_flash = maxf(0.0, hit_flash - delta)
+		neural_beat = maxf(0.0, neural_beat - delta * 3.0)
+		recovery_flash = maxf(0.0, recovery_flash - delta)
+		perfect_flash = maxf(0.0, perfect_flash - delta)
+		revival_reward_time = maxf(0.0, revival_reward_time - delta)
 	canvas.queue_redraw()
 	_layout_buttons()
+
+func show_revival_reward(words: String) -> void:
+	revival_reward_text = words
+	revival_reward_time = 1.2
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
@@ -125,6 +139,7 @@ func _bar(pos: Vector2, width: float, ratio: float, color: Color, height: float 
 
 func _draw_gameplay() -> void:
 	var player: Node = game.player
+	_draw_neural_feedback()
 	canvas.draw_rect(Rect2(24, 24, 530, 86), dark)
 	canvas.draw_rect(Rect2(24, 24, 3, 86), gold)
 	_label(Vector2(43, 49), "AEGIS  /  " + TrialRules.ROOM_NAMES[game.room], 16, muted)
@@ -151,12 +166,20 @@ func _draw_gameplay() -> void:
 		canvas.draw_rect(Rect2(240, 147, 800, 43), Color("0d1c24e8"))
 		_label(Vector2(259, 174), game.message_text, 16, pale)
 	# Bottom-left biometrics.
-	canvas.draw_rect(Rect2(24, 577, 288, 119), dark)
-	_label(Vector2(43, 604), "SUBJECT 06  /  VITAL SIGNAL", 13, muted)
-	_label(Vector2(43, 650), "%03d" % ceili(player.health), 35, gold if game.reviving else pale)
-	_label(Vector2(123, 649), "HP", 13, muted)
-	_bar(Vector2(43, 668), 246, player.health / 100.0, gold if game.reviving else cyan, 6)
-	_bar(Vector2(43, 683), 246, player.stamina / 100.0, muted, 3)
+	canvas.draw_rect(Rect2(24, 551, 318, 145), dark)
+	var stability: float = clampf(game.revival_time / game.revival_duration, 0, 1)
+	_label(Vector2(43, 575), "SUBJECT 06 / NEURAL STABILITY" if game.reviving else "SUBJECT 06 / VITAL SIGNAL", 13, cyan if game.reviving else muted)
+	var next_return := "NEXT RETURN  %d KILLS / %.1fs" % [game.next_revival_requirement(), game.revival_allowance]
+	if game.reviving:
+		next_return = "SYNCING / COUNTDOWN HELD" if game.revival_intro_time > 0.0 else "ELIMINATE %d MORE TO RETURN" % maxi(0, game.revival_needed - game.revival_kills)
+	elif game.remaining_enemies() == 0:
+		next_return = "ROOM CLEAR / SIGNAL SECURE"
+	_label(Vector2(43, 596), next_return, 12, gold)
+	_label(Vector2(43, 636), "%03d" % roundi(stability * 100) if game.reviving else "%03d" % ceili(player.health), 35, cyan if game.reviving else pale)
+	_label(Vector2(123, 635), "%" if game.reviving else "HP", 13, muted)
+	_bar(Vector2(43, 650), 276, stability if game.reviving else player.health / 100.0, cyan, 6)
+	_label(Vector2(43, 674), "GUARD STAMINA", 10, muted)
+	_bar(Vector2(43, 683), 276, player.stamina / 100.0, muted, 3)
 	# Flow stage is persistent, the active streak window is not.
 	canvas.draw_rect(Rect2(448, 614, 384, 82), dark)
 	_label(Vector2(468, 641), "FLOW %02d" % game.flow_stage, 18, cyan)
@@ -175,18 +198,59 @@ func _draw_gameplay() -> void:
 		_bar(Vector2(923, 678), 310, player.integrity / float(Equipment.definition(player.item_id).durability), gold)
 	_label(Vector2(448, 601), "WASD MOVE   SHIFT SPRINT   SPACE DOUBLE JUMP", 12, pale)
 	if player.blocking:
-		_label(Vector2(570, 478), "GUARD ACTIVE", 17, cyan)
+		_label(Vector2(570, 478), "PERFECT BLOCK" if perfect_flash > 0 else "GUARD ACTIVE", 17, gold if perfect_flash > 0 else cyan)
 	if game.reviving:
-		canvas.draw_rect(Rect2(350, 215, 580, 95), Color("561c25ed"))
-		_label(Vector2(373, 246), "RETURN FROM DEATH", 20, Color("ffc4ac"))
-		_label(Vector2(373, 279), "%d / %d KILLS    /    SIGNAL LOSS IN %.1fs" % [game.revival_kills, game.revival_needed, game.revival_time], 20)
-		_bar(Vector2(373, 293), 530, game.revival_time / game.revival_duration, gold, 4)
+		canvas.draw_rect(Rect2(385, 211, 510, 99), Color("162b40ee"))
+		_label(Vector2(405, 239), "NEURAL REBOOT" if game.revival_intro_time > 0.0 else "RETURN FROM DEATH", 20, cyan)
+		_label(Vector2(752, 243), "%.1fs" % game.revival_time, 28, gold)
+		_label(Vector2(405, 266), "%d / %d ELIMINATED" % [game.revival_kills, game.revival_needed], 18)
+		_label(Vector2(405, 289), "COUNTDOWN HELD" if game.revival_intro_time > 0.0 else "TIMED BLOCK +0.5s  /  KILL +1.5s", 12, muted)
+		_bar(Vector2(405, 300), 470, stability, gold, 4)
+		_draw_pickup_guide()
+	if revival_reward_time > 0.0:
+		_label(Vector2(445, 337), revival_reward_text, 16, cyan)
 	if damage_flash > 0:
 		var color := Color(0.7, 0.08, 0.05, damage_flash * 0.5)
 		canvas.draw_rect(Rect2(0, 0, 1280, 12), color)
 		canvas.draw_rect(Rect2(0, 708, 1280, 12), color)
 		canvas.draw_rect(Rect2(0, 0, 12, 720), color)
 		canvas.draw_rect(Rect2(1268, 0, 12, 720), color)
+
+func _draw_neural_feedback() -> void:
+	var strength: float = (0.08 + neural_beat * 0.14) if game.reviving else 0.0
+	strength += recovery_flash * 0.4
+	if strength <= 0.0:
+		return
+	var color := Color(0.4, 0.75, 1.0, strength)
+	canvas.draw_rect(Rect2(0, 0, 1280, 10), color)
+	canvas.draw_rect(Rect2(0, 710, 1280, 10), color)
+	canvas.draw_rect(Rect2(0, 10, 10, 700), color)
+	canvas.draw_rect(Rect2(1270, 10, 10, 700), color)
+
+func _draw_pickup_guide() -> void:
+	var item: Node3D = game.revival_pickup
+	if not is_instance_valid(item):
+		return
+	var camera: Camera3D = game.player.camera
+	var factor := get_viewport().get_visible_rect().size / Vector2(1280, 720)
+	var local := camera.to_local(item.global_position)
+	var behind := camera.is_position_behind(item.global_position)
+	var horizontal := Vector2(item.global_position.x - camera.global_position.x, item.global_position.z - camera.global_position.z)
+	var below_feet := horizontal.length() < 0.8 and item.global_position.y < camera.global_position.y - 0.5
+	var pos := Vector2(1190 if local.x >= 0 else 90, 370)
+	if not behind:
+		pos = camera.unproject_position(item.global_position) / factor
+	var outside := behind or not Rect2(80, 345, 1120, 180).has_point(pos)
+	if outside and below_feet:
+		pos = Vector2(640, 525)
+	pos = pos.clamp(Vector2(80, 345), Vector2(1200, 525))
+	canvas.draw_arc(pos, 19, 0, TAU, 24, gold, 2.0, true)
+	canvas.draw_line(pos + Vector2(-7, 0), pos + Vector2(7, 0), gold, 2)
+	canvas.draw_line(pos + Vector2(0, -7), pos + Vector2(0, 7), gold, 2)
+	var direction := "LOOK DOWN / " if outside and below_feet else ("TURN / " if outside else "SCAVENGE / ")
+	var words: String = direction + Equipment.definition(item.item_id).name
+	words += "  %dm" % ceili(game.player.global_position.distance_to(item.global_position))
+	_label(Vector2(clampf(pos.x - 130, 50, 930), pos.y + 40), words, 14, gold)
 
 func _draw_overlay() -> void:
 	canvas.draw_rect(Rect2(0, 0, 1280, 720), Color("07131a9c"))

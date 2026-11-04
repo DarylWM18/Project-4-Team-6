@@ -16,6 +16,7 @@ var wood := WorldArt.material(Color("513a2d"), 0.1)
 var cyan := WorldArt.material(Color("75d9dd"), 0.2, 1.8)
 var amber := WorldArt.material(Color("e5ae63"), 0.1, 1.5)
 var red := WorldArt.material(Color("ed6a4e"), 0.1, 1.6)
+var environment: Environment
 
 func _ready() -> void:
 	_environment()
@@ -46,7 +47,43 @@ func _environment() -> void:
 	env.fog_light_color = Color("21333b")
 	env.fog_density = 0.009
 	world.environment = env
+	environment = env
 	add_child(world)
+
+func set_neural_lighting(active: bool) -> void:
+	environment.ambient_light_color = Color("91b7ef") if active else Color("8aabb9")
+	environment.ambient_light_energy = 0.5 if active else 0.4
+	environment.fog_light_color = Color("27263f") if active else Color("21333b")
+
+func room_for_position(pos: Vector3) -> int:
+	return 0 if pos.z > -14.4 else (1 if pos.z > -40.4 else 2)
+
+func show_recovery_pulse(origin: Vector3, radius: float) -> void:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in 32:
+		var a := TAU * i / 32.0
+		var b := TAU * (i + 1) / 32.0
+		var outer_a := Vector3(cos(a), 0, sin(a))
+		var outer_b := Vector3(cos(b), 0, sin(b))
+		for vertex in [outer_a, outer_b, outer_a * 0.92, outer_b, outer_b * 0.92, outer_a * 0.92]:
+			surface.add_vertex(vertex)
+	surface.generate_normals()
+	var pulse := MeshInstance3D.new()
+	pulse.name = "RecoveryPulse"
+	pulse.mesh = surface.commit()
+	var mat := WorldArt.material(Color(0.55, 0.9, 1.0, 0.65), 0.0, 1.4)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	pulse.material_override = mat
+	pulse.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(pulse)
+	pulse.global_position = origin + Vector3.UP * 0.12
+	pulse.scale = Vector3.ONE * 0.06
+	var tween := create_tween()
+	tween.tween_property(pulse, "scale", Vector3.ONE * radius, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(mat, "albedo_color:a", 0.0, 0.45)
+	tween.tween_callback(pulse.queue_free)
 
 func _room(index: int, center: float, width: int, depth: int, title: String,
 		number: String, south_open: bool) -> void:

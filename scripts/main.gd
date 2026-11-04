@@ -19,8 +19,11 @@ var revival_uses := 0
 var revival_kills := 0
 var revival_needed := 1
 var revival_time := 0.0
-var revival_allowance := 10.0
-var revival_duration := 10.0
+var revival_allowance := TrialRules.REVIVAL_BASE_SECONDS
+var revival_duration := TrialRules.REVIVAL_BASE_SECONDS
+var revival_intro_time := 0.0
+var revival_heartbeat_time := 0.0
+var revival_pickup: LabPickup
 var note_found := false
 var recording_found := false
 var kills := 0
@@ -56,6 +59,16 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if state != "playing":
 		return
+	if revival_intro_time > 0.0:
+		# Hold combat and gameplay clocks for the impact beat. Menus still use
+		# SceneTree pause, so resuming a file cannot skip this transition.
+		var intro_step := minf(delta, revival_intro_time)
+		revival_intro_time = maxf(0.0, revival_intro_time - intro_step)
+		delta -= intro_step
+		if revival_intro_time <= 0.0 and revival_needed == 0:
+			_complete_revival()
+		if delta <= 0.0:
+			return
 	total_time += delta
 	if not room_cleared:
 		room_time += delta
@@ -70,6 +83,12 @@ func _process(delta: float) -> void:
 		if revival_time <= 0.0:
 			finish(false)
 			return
+		revival_heartbeat_time -= delta
+		if revival_heartbeat_time <= 0.0:
+			audio.heartbeat()
+			hud.neural_beat = 1.0
+			revival_heartbeat_time = lerpf(0.4, 0.9, clampf(revival_time / revival_duration, 0, 1))
+	refresh_revival_pickup()
 	if room == 0 and room_cleared and player.position.z < -14.4:
 		_enter_room(1)
 	elif room == 1 and room_cleared and player.position.z < -40.4:
@@ -124,17 +143,14 @@ func remaining_enemies() -> int:
 			count += 1
 	return count
 
-func enemy_defeated(_enemy: Node) -> void:
+func enemy_defeated(enemy: Node) -> void:
 	kills += 1
 	_gain_flow()
-	if reviving:
+	if reviving and enemy.room_index == room:
 		revival_kills += 1
+		add_revival_time(TrialRules.REVIVAL_KILL_BONUS, "ELIMINATION")
 		if revival_kills >= revival_needed:
-			reviving = false
-			player.health = 55.0
-			player.invulnerability = 1.2
-			notify("RETURN COMPLETE / neural signal restored", 3.0)
-			audio.tone(720.0, 0.28, 0.2)
+			_complete_revival()
 	if remaining_enemies() == 0:
 		_clear_room()
 
@@ -160,21 +176,89 @@ func begin_revival() -> void:
 	if reviving:
 		return
 	revival_uses += 1
-	revival_needed = TrialRules.revival_requirement(revival_uses)
+	# Only living subjects in the current trial can be demanded. A cleared
+	# room automatically restores the signal after the impact beat.
+	revival_needed = mini(TrialRules.revival_requirement(revival_uses), remaining_enemies())
 	revival_kills = 0
 	revival_time = revival_allowance
 	revival_duration = revival_allowance
 	reviving = true
+	revival_intro_time = TrialRules.REVIVAL_INTRO_SECONDS
+	revival_heartbeat_time = 0.0
+	player.attack_delay = -1.0
+	player.blocking = false
+	player.perfect_block_available = false
 	player.invulnerability = 1.0
+	lab.set_neural_lighting(true)
+	player.flashlight.light_color = Color("a8c8ff")
+	hud.neural_beat = 1.0
+	refresh_revival_pickup()
 	notify("RETURN FROM DEATH / eliminate %d subject(s) before signal loss" % revival_needed, 4.0)
 	audio.tone(95.0, 0.6, 0.3, true)
+
+func next_revival_requirement() -> int:
+	return mini(TrialRules.revival_requirement(revival_uses + 1), remaining_enemies())
+
+func add_revival_time(seconds: float, reason: String) -> float:
+	if not reviving or revival_intro_time > 0.0 or revival_time <= 0.0:
+		return 0.0
+	var gained := minf(seconds, maxf(0.0, revival_duration - revival_time))
+	revival_time += gained
+	if gained > 0.0:
+		hud.show_revival_reward("%s  +%.1fs" % [reason, gained])
+	return gained
+
+func refresh_revival_pickup() -> void:
+	var nearest: LabPickup = null
+	var distance := INF
+	if reviving and player.item_id.is_empty():
+		for item in get_tree().get_nodes_in_group("pickups"):
+			if item.is_queued_for_deletion() or item.durability <= 0.0 or lab.room_for_position(item.global_position) != room:
+				continue
+			var candidate: float = player.global_position.distance_squared_to(item.global_position)
+			if candidate < distance:
+				nearest = item
+				distance = candidate
+	if is_instance_valid(revival_pickup) and revival_pickup != nearest:
+		revival_pickup.set_revival_highlight(false)
+	revival_pickup = nearest
+	if is_instance_valid(revival_pickup):
+		revival_pickup.set_revival_highlight(true)
+
+func _complete_revival() -> void:
+	if not reviving:
+		return
+	reviving = false
+	revival_intro_time = 0.0
+	player.health = TrialRules.REVIVAL_HEALTH
+	player.stamina = 100.0
+	player.invulnerability = TrialRules.REVIVAL_PROTECTION
+	lab.set_neural_lighting(false)
+	player.flashlight.light_color = Color("b5d7df")
+	refresh_revival_pickup()
+	hud.recovery_flash = 0.6
+	hud.neural_beat = 0.0
+	hud.show_revival_reward("SIGNAL RESTORED / STAMINA REFILLED")
+	# Interrupt nearby lunges without damaging subjects or reaching through walls.
+	for enemy in get_tree().get_nodes_in_group("enemies"):
+		if enemy.dead or not enemy.active or enemy.room_index != room:
+			continue
+		if player.global_position.distance_to(enemy.global_position) > TrialRules.REVIVAL_PULSE_RADIUS:
+			continue
+		var query := PhysicsRayQueryParameters3D.create(player.global_position + Vector3.UP,
+			enemy.global_position + Vector3.UP, 1)
+		if get_world_3d().direct_space_state.intersect_ray(query).is_empty():
+			enemy.apply_neural_pulse(player.global_position)
+	lab.show_recovery_pulse(player.global_position, TrialRules.REVIVAL_PULSE_RADIUS)
+	notify("RETURN COMPLETE / neural signal restored", 3.0)
+	audio.tone(720.0, 0.28, 0.2)
 
 func _clear_room() -> void:
 	if room_cleared:
 		return
 	room_cleared = true
 	var rank := TrialRules.rank_index(room_time, TrialRules.ROOM_TARGETS[room])
-	revival_allowance = TrialRules.REVIVAL_SECONDS[rank]
+	revival_allowance = TrialRules.revival_seconds(rank)
 	room_results.append({"room": room, "seconds": room_time, "rank": TrialRules.RANKS[rank]})
 	if best_times[room] <= 0.0 or room_time < best_times[room]:
 		best_times[room] = room_time
@@ -230,6 +314,10 @@ func finish(escaped: bool) -> void:
 	if state != "playing":
 		return
 	state = "victory" if escaped else "dead"
+	revival_intro_time = 0.0
+	if is_instance_valid(revival_pickup):
+		revival_pickup.set_revival_highlight(false)
+	revival_pickup = null
 	if escaped:
 		leaderboard.append({"seconds": total_time, "ranks": room_results.duplicate(true)})
 		leaderboard.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.seconds < b.seconds)

@@ -31,6 +31,9 @@ var interact_target: Object
 var jump_buffer := 0.0
 var coyote_time := 0.0
 var sensitivity := 0.0022
+var block_was_held := false
+var block_press_age := INF
+var perfect_block_available := false
 
 func _ready() -> void:
 	collision_layer = 8
@@ -69,6 +72,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		rotate_y(-event.relative.x * sensitivity)
 		pitch = clampf(pitch - event.relative.y * sensitivity, -1.4, 1.4)
+	if game.revival_intro_time > 0.0:
+		return
 	if event.is_action_pressed("flashlight"):
 		flashlight.visible = not flashlight.visible
 	if event.is_action_pressed("drop"):
@@ -79,10 +84,14 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if game.state != "playing":
 		return
+	if game.revival_intro_time > 0.0:
+		# Looking remains responsive during the short combat freeze.
+		camera.rotation.x = pitch
+		return
 	attack_cooldown = maxf(0, attack_cooldown - delta)
 	invulnerability = maxf(0, invulnerability - delta)
 	stamina = minf(100.0, stamina + delta * (12.0 if blocking else 30.0))
-	blocking = Input.is_action_pressed("block") and not item_id.is_empty() and stamina > 8.0 and attack_cooldown <= 0.1
+	_update_guard(delta)
 	if Input.is_action_pressed("attack"):
 		begin_attack()
 	if attack_delay >= 0.0:
@@ -94,6 +103,18 @@ func _physics_process(delta: float) -> void:
 	_update_interaction()
 	if global_position.y < -8.0:
 		game.finish(false)
+
+func _update_guard(delta: float) -> void:
+	var held := Input.is_action_pressed("block")
+	block_press_age += delta
+	if held and not block_was_held:
+		block_press_age = 0.0
+		perfect_block_available = true
+	elif not held:
+		perfect_block_available = false
+		block_press_age = INF
+	block_was_held = held
+	blocking = held and not item_id.is_empty() and stamina > 8.0 and attack_cooldown <= 0.1
 
 func _update_movement(delta: float) -> void:
 	if is_on_floor():
@@ -141,7 +162,7 @@ func _update_view(delta: float) -> void:
 	hand.rotation = Vector3(-0.45, 0, -1.15) if blocking else Vector3(-0.2 + swing * 0.6, -swing * 0.8, 0.18 - swing * 1.6)
 
 func begin_attack() -> void:
-	if attack_cooldown > 0.0 or blocking:
+	if attack_cooldown > 0.0 or blocking or game.revival_intro_time > 0.0:
 		return
 	if item_id.is_empty():
 		game.notify("Find equipment. Everything you use comes from the lab.")
@@ -152,7 +173,7 @@ func begin_attack() -> void:
 	game.audio.tone(110.0, 0.09, 0.16, true)
 
 func _resolve_attack() -> void:
-	if item_id.is_empty():
+	if item_id.is_empty() or game.revival_intro_time > 0.0:
 		return
 	var data := Equipment.definition(item_id)
 	var origin := camera.global_position
@@ -177,19 +198,24 @@ func _resolve_attack() -> void:
 		game.audio.tone(75.0, 0.13, 0.27, true)
 
 func receive_damage(amount: float, source: Vector3) -> void:
-	if invulnerability > 0.0 or game.state != "playing":
+	if invulnerability > 0.0 or game.state != "playing" or game.revival_intro_time > 0.0:
 		return
 	var direction := (source - global_position).normalized()
 	var front := -global_basis.z
-	var blocked := blocking and front.dot(direction) > 0.25
+	var blocked := blocking and not item_id.is_empty() and front.dot(direction) > 0.25
+	var perfect := blocked and perfect_block_available and block_press_age <= TrialRules.PERFECT_BLOCK_WINDOW
 	if blocked:
+		perfect_block_available = false
 		var data := Equipment.definition(item_id)
 		amount *= 1.0 - float(data.block)
 		integrity -= 18.0
 		stamina = maxf(0, stamina - 28.0)
 		recoil = 1.3
-		game.audio.tone(480.0, 0.12, 0.22, true)
-		game.notify("BLOCKED  /  keep the threat in front of you", 1.0)
+		game.audio.tone(760.0 if perfect else 480.0, 0.12, 0.22, true)
+		game.notify("PERFECT BLOCK" if perfect else "BLOCKED  /  keep the threat in front of you", 1.0)
+		if perfect:
+			game.hud.perfect_flash = 0.5
+			game.add_revival_time(TrialRules.REVIVAL_PERFECT_BLOCK_BONUS, "PERFECT BLOCK")
 		if integrity <= 0.0:
 			item_id = ""
 			blocking = false
@@ -201,7 +227,9 @@ func receive_damage(amount: float, source: Vector3) -> void:
 		game.hud.damage_flash = 0.65
 	invulnerability = 0.35
 	if game.reviving:
-		game.revival_time = maxf(0.0, game.revival_time - (0.5 if blocked else 1.5))
+		if not blocked:
+			game.revival_time = maxf(0.0, game.revival_time - TrialRules.REVIVAL_HIT_PENALTY)
+		game.refresh_revival_pickup()
 		return
 	health = maxf(0.0, health - amount)
 	if health <= 0.0:
@@ -215,6 +243,7 @@ func equip(id: String, remaining: float) -> void:
 	_build_hand()
 	game.notify(Equipment.definition(id).name + " acquired.  LMB attack / RMB block")
 	game.audio.tone(640.0, 0.12, 0.15)
+	game.refresh_revival_pickup()
 
 func drop_item() -> void:
 	if item_id.is_empty():
@@ -225,6 +254,7 @@ func drop_item() -> void:
 	attack_delay = -1.0
 	blocking = false
 	_build_hand()
+	game.refresh_revival_pickup()
 
 func _build_hand() -> void:
 	for child in hand.get_children():
