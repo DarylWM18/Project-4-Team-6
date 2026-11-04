@@ -29,12 +29,24 @@ func _run() -> void:
 	current_scene = game
 	await process_frame
 	check(game.player.item_id.is_empty(), "player spawns without equipment")
-	check(get_nodes_in_group("enemies").size() == 14, "all three trials have enemies")
+	check(get_nodes_in_group("enemies").size() == 25, "all Flow-compatible trial enemies are present")
+	for room_index in TrialRules.ROOM_ENEMIES.size():
+		var room_enemy_count := 0
+		for enemy in get_nodes_in_group("enemies"):
+			if enemy.room_index == room_index:
+				room_enemy_count += 1
+		check(room_enemy_count == TrialRules.ROOM_ENEMIES[room_index],
+			"trial %d has its configured enemy count" % (room_index + 1))
 	check(get_nodes_in_group("pickups").size() == 7, "all weapons are world pickups")
 	check(paused, "menu holds the simulation")
 	game.start_run()
+	var active_enemy_count := 0
 	for enemy in get_nodes_in_group("enemies"):
+		if enemy.room_index == 0 and enemy.active:
+			active_enemy_count += 1
 		enemy.set_physics_process(false)
+	check(active_enemy_count == game.MAX_ACTIVE_ENEMIES,
+		"the enemy wave cap prevents the first trial from overwhelming the player")
 	await physics_frame
 	# Acquire the actual world item through the interaction ray.
 	var wrench: Node3D = get_nodes_in_group("pickups")[0]
@@ -67,7 +79,12 @@ func _run() -> void:
 	Input.action_release("jump")
 	check(game.player.jumps_used == 2 and game.player.velocity.y > 0, "second jump works in the air")
 	# A real melee hit must connect in range, but never through geometry.
-	var target: Node = get_nodes_in_group("enemies")[0]
+	var target: Node = null
+	for enemy in get_nodes_in_group("enemies"):
+		if enemy.room_index == 0 and enemy.active:
+			target = enemy
+			break
+	check(target != null, "an active enemy is available for melee testing")
 	game.player.position = Vector3(0, 0.1, -2)
 	game.player.velocity = Vector3.ZERO
 	target.position = Vector3(0, 0.1, -4)
@@ -114,28 +131,109 @@ func _run() -> void:
 	check(game.player.item_id.is_empty(), "dropping clears hands")
 	check(get_nodes_in_group("pickups").size() == pickup_count + 1, "dropped equipment returns to the world")
 	game.player.equip("wrench", 100)
-	# Flow windows begin on the first kill and retain earned stages.
+	# Flow has five non-stacking movement and attack-speed stages.
+	var flow_multipliers := [1.0, 1.1, 1.25, 1.45, 1.7, 2.0]
 	game.flow_stage = 0
 	game.flow_kills = 0
+	game.flow_time = 0.0
+	game._gain_flow(8)
+	check(game.flow_stage == 2 and game.flow_kills == 1
+		and is_equal_approx(game.flow_time, TrialRules.FLOW_WINDOWS[2]),
+		"one oversized kill event carries excess progress through multiple stages")
+	game.flow_stage = 0
+	game.flow_kills = 0
+	game.flow_time = 0.0
+	for stage in TrialRules.FLOW_KILLS.size():
+		var required: int = TrialRules.FLOW_KILLS[stage]
+		for kill in required:
+			game._gain_flow()
+			if kill == 0:
+				check(is_equal_approx(game.flow_time, TrialRules.FLOW_WINDOWS[stage]),
+					"stage %d timer starts on its first kill" % (stage + 1))
+		check(game.flow_stage == stage + 1 and game.flow_kills == 0 and game.flow_time == 0,
+			"stage %d unlocks at its required kill count" % (stage + 1))
+	check(game.flow_stage == 5, "all five Flow stages can be earned")
+	game._process(20.0)
+	check(game.flow_stage == 5, "stage 5 remains active without health damage")
+	# Every stage multiplier applies to both normal movement and sprinting.
+	for stage in flow_multipliers.size():
+		game.flow_stage = stage
+		check(is_equal_approx(game.player._movement_speed(false), LabPlayer.SPEED * flow_multipliers[stage]),
+			"Flow stage %d applies its normal movement multiplier" % stage)
+		check(is_equal_approx(game.player._movement_speed(true), LabPlayer.SPRINT_SPEED * flow_multipliers[stage]),
+			"Flow stage %d applies its sprint multiplier" % stage)
+	# The same replacement multiplier shortens cooldown, hit delay, and animation.
+	for stage in flow_multipliers.size():
+		game.flow_stage = stage
+		game.player.attack_cooldown = 0.0
+		game.player.attack_delay = -1.0
+		game.player.begin_attack()
+		var multiplier: float = flow_multipliers[stage]
+		check(is_equal_approx(game.player.attack_cooldown, 0.42 / multiplier),
+			"Flow stage %d applies its attack-speed multiplier" % stage)
+		check(is_equal_approx(game.player.attack_delay, 0.1 / multiplier)
+			and is_equal_approx(game.player.swing_duration, 0.28 / multiplier),
+			"Flow stage %d keeps hit and animation timing synchronized" % stage)
+	game.player.attack_cooldown = 0.0
+	game.player.attack_delay = -1.0
+	game.player.swing_time = 0.0
+	# Expiration clears only progress toward the next stage.
+	game.flow_stage = 2
+	game.flow_kills = 0
+	game.flow_time = 0.0
 	game._gain_flow()
-	check(game.flow_kills == 1 and game.flow_time > 0, "first kill starts flow window")
-	game._gain_flow()
-	check(game.flow_stage == 1 and game.flow_time == 0, "required kills unlock a speed stage")
-	game._gain_flow()
-	game._process(11)
-	check(game.flow_stage == 1 and game.flow_kills == 0, "flow expiry keeps unlocked stages")
-	game._gain_flow()
-	game.flow_interrupted()
-	check(game.flow_stage == 1 and game.flow_kills == 0, "damage breaks the unbanked chain")
+	game._process(TrialRules.FLOW_WINDOWS[2] + 0.1)
+	check(game.flow_stage == 2 and game.flow_kills == 0 and game.flow_time == 0,
+		"flow expiry keeps the earned stage and clears current progress")
+	# Any real health loss resets all Flow, even when a guard reduces it.
+	game.flow_stage = 5
+	game.player.health = 100.0
+	game.player.integrity = 100.0
+	game.player.invulnerability = 0.0
+	game.player.blocking = true
+	game.player.receive_damage(20.0, game.player.position + Vector3.FORWARD)
+	check(game.player.health < 100.0 and game.flow_stage == 0,
+		"blocked health damage resets Flow to stage 0")
+	game.flow_stage = 3
+	game.player.health = 100.0
+	game.player.invulnerability = 0.0
+	game.player.blocking = false
+	game.player.receive_damage(0.0, game.player.position + Vector3.BACK)
+	check(game.player.health == 100.0 and game.flow_stage == 3,
+		"an attack that causes no health damage preserves Flow")
 	# Fatal damage enters the timed recovery mode; a kill restores health.
 	game.player.invulnerability = 0
 	game.player.health = 1
 	game.player.blocking = false
 	game.player.receive_damage(50, game.player.position + Vector3.BACK)
-	check(game.reviving and game.revival_needed == 1, "fatal hit begins first revival")
+	check(game.reviving and game.revival_needed == 1 and game.flow_stage == 0,
+		"fatal health damage resets Flow and begins first revival")
+	game.flow_stage = 2
+	game.player.invulnerability = 0.0
+	var revival_health: float = game.player.health
+	var signal_time: float = game.revival_time
+	game.player.receive_damage(20.0, game.player.position + Vector3.BACK)
+	check(game.player.health == revival_health and game.revival_time < signal_time and game.flow_stage == 2,
+		"signal-time damage during revival does not count as health damage")
+	var active_before_replacement := {}
+	for enemy in get_nodes_in_group("enemies"):
+		if enemy.room_index == 0 and enemy.active and not enemy.dead:
+			active_before_replacement[enemy.get_instance_id()] = true
 	target.dead = true
 	game.enemy_defeated(target)
 	check(not game.reviving and game.player.health == 55, "required revival kill restores life")
+	active_enemy_count = 0
+	for enemy in get_nodes_in_group("enemies"):
+		if enemy.room_index == 0 and enemy.active and not enemy.dead:
+			active_enemy_count += 1
+	check(active_enemy_count == game.MAX_ACTIVE_ENEMIES,
+		"a defeated enemy is immediately replaced from the waiting wave")
+	var safe_replacement := false
+	for enemy in get_nodes_in_group("enemies"):
+		if (enemy.room_index == 0 and enemy.active and not enemy.dead
+			and not active_before_replacement.has(enemy.get_instance_id())):
+			safe_replacement = enemy.global_position.distance_to(game.player.global_position) >= 4.0
+	check(safe_replacement, "newly activated enemies use a distant existing spawn position")
 	game.begin_revival()
 	check(game.revival_needed == 2, "second revival costs two kills")
 	game.reviving = false
@@ -144,10 +242,21 @@ func _run() -> void:
 	for enemy in get_nodes_in_group("enemies"):
 		if enemy.room_index == 0:
 			enemy.dead = true
+	game.flow_stage = 4
+	game.flow_kills = 3
+	game.flow_time = 4.0
 	game._clear_room()
 	check(game.lab.gate_open[0], "first trial releases first gate")
 	check(game.revival_allowance == 16, "SSS grants 16 seconds next room")
 	game._enter_room(1)
+	check(game.flow_stage == 4 and game.flow_kills == 3 and game.flow_time > 0.0,
+		"room completion and transition preserve Flow stage, progress, and timer")
+	active_enemy_count = 0
+	for enemy in get_nodes_in_group("enemies"):
+		if enemy.room_index == 1 and enemy.active:
+			active_enemy_count += 1
+	check(active_enemy_count == game.MAX_ACTIVE_ENEMIES,
+		"the next trial activates only one manageable enemy wave")
 	for enemy in get_nodes_in_group("enemies"):
 		if enemy.room_index == 1:
 			enemy.dead = true

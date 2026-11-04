@@ -19,6 +19,7 @@ var lunge_direction := Vector3.ZERO
 var hit_this_lunge := false
 var age := 0.0
 var stagger := 0.0
+var spawn_position := Vector3.ZERO
 
 func _ready() -> void:
 	collision_layer = 2
@@ -61,7 +62,7 @@ func _physics_process(delta: float) -> void:
 					direction = global_position.direction_to(path[0])
 			else:
 				direction = offset.normalized()
-			if distance < 2.65 and _can_see_player():
+			if distance < 2.65 and _can_see_player() and game.request_enemy_attack(self):
 				state = "windup"
 				timer = 0.6
 				game.audio.tone(180.0, 0.12, 0.08, true)
@@ -85,6 +86,7 @@ func _physics_process(delta: float) -> void:
 			model.rotation.x = lerpf(model.rotation.x, 0, delta * 8)
 			model.scale = model.scale.lerp(Vector3.ONE, delta * 8)
 			if timer <= 0.0:
+				game.enemy_attack_finished(self)
 				state = "chase"
 	if stagger > 0.0:
 		direction = Vector3.ZERO
@@ -100,6 +102,20 @@ func _can_see_player() -> bool:
 	var query := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP,
 		game.player.global_position + Vector3.UP, 1)
 	return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+func set_active(value: bool) -> void:
+	var was_active := active
+	active = value and not dead
+	visible = active
+	collision_layer = 2 if active else 0
+	collision_mask = (1 | 2 | 8) if active else 0
+	if active and not was_active:
+		position = spawn_position
+		velocity = Vector3.ZERO
+		push = Vector3.ZERO
+		state = "chase"
+		timer = 0.0
+		repath = 0.0
 
 func take_damage(amount: float, direction: Vector3) -> void:
 	if dead:

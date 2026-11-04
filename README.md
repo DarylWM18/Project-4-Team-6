@@ -56,6 +56,10 @@ for 0.6 seconds, lunge, and then recover. Walls block melee and enemy attack sig
 lines. A guard protects a frontal arc, reduces damage, and consumes stamina and
 item integrity. Stamina regenerates; integrity does not. A broken item disappears,
 so another tool must be found. Blocking slows movement and prevents attacking.
+Trials contain 7, 11, and 7 enemies, with at most three active at once; defeated
+enemies are replaced from the safest distant spawn in the room's waiting wave.
+Only one mutant can attack at a time, followed by a shared two-second cooldown;
+the others continue pursuing while they wait for an opening.
 
 | Found item | Damage | Reach | Swing interval | Guard reduction | Integrity |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -66,10 +70,13 @@ so another tool must be found. Blocking slows movement and prevents attacking.
 
 ## Narrative mechanics
 
-**Flow State:** stages require 2, 3, then 4 kills inside 12, 10, and 9 second windows.
-Each stage's timer starts on its **first kill**. Expiration or an unblocked hit clears
-the current chain; already unlocked stages remain. Stages increase movement speed
-by 12%, 25%, then 40%. A guarded hit preserves the chain.
+**Flow State:** the five stages require 3, 4, 5, 6, and 7 kills inside 10, 8,
+7, 6, and 5 second windows. Each stage's timer starts on its **first kill**. Expiration
+clears progress toward the next stage but preserves the earned stage. Stages replace
+the prior movement and attack-speed bonus with 10%, 25%, 45%, 70%, and 100% bonuses.
+Any actual health loss resets Flow to stage 0, including damage reduced by a guard;
+an attack that removes no health preserves Flow. Flow stage, unfinished progress,
+and its running timer carry between rooms.
 
 **Room ranking:** all eight ranks have explicit thresholds. For a target time T,
 SSS is at most T/2, SS at most 2T/3, S at most 5T/6, A at most T, B at most 1.25T,
