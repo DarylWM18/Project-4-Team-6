@@ -22,8 +22,9 @@ var revival_uses := 0
 var revival_kills := 0
 var revival_needed := 1
 var revival_time := 0.0
-var revival_allowance := 10.0
-var revival_duration := 10.0
+var revival_allowance := TrialRules.BASE_REVIVAL_SECONDS
+var revival_duration := TrialRules.BASE_REVIVAL_SECONDS
+var next_room_revival_allowance: float = -1.0
 var note_found := false
 var recording_found := false
 var kills := 0
@@ -111,6 +112,13 @@ func _enter_room(index: int) -> void:
 	room_time = 0.0
 	if not reviving:
 		player.health = maxf(player.health, 65.0)
+    
+	if next_room_revival_allowance > 0.0:
+		revival_allowance = next_room_revival_allowance
+		next_room_revival_allowance = -1.0
+	else:
+		revival_allowance = TrialRules.BASE_REVIVAL_SECONDS
+
 	enemy_attack_owner = null
 	enemy_attack_cooldown = ENEMY_ATTACK_COOLDOWN
 	_activate_room()
@@ -218,7 +226,9 @@ func _clear_room() -> void:
 		return
 	room_cleared = true
 	var rank := TrialRules.rank_index(room_time, TrialRules.ROOM_TARGETS[room])
-	revival_allowance = TrialRules.REVIVAL_SECONDS[rank]
+	var reward: float = TrialRules.REVIVAL_SECONDS[rank]
+	next_room_revival_allowance = reward
+	revival_allowance = reward
 	room_results.append({"room": room, "seconds": room_time, "rank": TrialRules.RANKS[rank]})
 	if best_times[room] <= 0.0 or room_time < best_times[room]:
 		best_times[room] = room_time
