@@ -1,6 +1,9 @@
 extends Node3D
 ## Owns a single run. UI pauses the tree; story reading never consumes trial time.
 
+const MAX_ACTIVE_ENEMIES := 3
+const ENEMY_ATTACK_COOLDOWN := 2.0
+
 var state := "menu"
 var player: LabPlayer
 var lab: LabLevel
@@ -29,6 +32,8 @@ var notification_time := 0.0
 var leaderboard: Array = []
 var best_times := [0.0, 0.0, 0.0]
 var records_path := "user://trial_records.cfg"
+var enemy_attack_owner: Node
+var enemy_attack_cooldown := 0.0
 
 func _enter_tree() -> void:
 	_install_inputs()
@@ -60,6 +65,7 @@ func _process(delta: float) -> void:
 	if not room_cleared:
 		room_time += delta
 	notification_time = maxf(0.0, notification_time - delta)
+	enemy_attack_cooldown = maxf(0.0, enemy_attack_cooldown - delta)
 	if flow_time > 0.0:
 		flow_time = maxf(0.0, flow_time - delta)
 		if flow_time <= 0.0:
@@ -105,8 +111,8 @@ func _enter_room(index: int) -> void:
 	room_time = 0.0
 	if not reviving:
 		player.health = maxf(player.health, 65.0)
-	flow_kills = 0
-	flow_time = 0.0
+	enemy_attack_owner = null
+	enemy_attack_cooldown = ENEMY_ATTACK_COOLDOWN
 	_activate_room()
 	if index == 1:
 		notify("Warning. Subjects have escaped containment. Read your subject file.", 6.0)
@@ -114,8 +120,26 @@ func _enter_room(index: int) -> void:
 		notify("The exit is ahead. Clear the transit lock and reach the override.", 5.0)
 
 func _activate_room() -> void:
+	var waiting: Array[LabEnemy] = []
+	var active_count := 0
 	for enemy in get_tree().get_nodes_in_group("enemies"):
-		enemy.active = enemy.room_index == room and not enemy.dead
+		if enemy.dead:
+			continue
+		if enemy.room_index != room:
+			enemy.set_active(false)
+		elif enemy.active:
+			enemy.set_active(true)
+			active_count += 1
+		else:
+			waiting.append(enemy)
+	waiting.sort_custom(func(a: LabEnemy, b: LabEnemy) -> bool:
+		return a.global_position.distance_squared_to(player.global_position) > b.global_position.distance_squared_to(player.global_position)
+	)
+	for enemy in waiting:
+		var should_activate := active_count < MAX_ACTIVE_ENEMIES
+		enemy.set_active(should_activate)
+		if should_activate:
+			active_count += 1
 
 func remaining_enemies() -> int:
 	var count := 0
@@ -125,6 +149,7 @@ func remaining_enemies() -> int:
 	return count
 
 func enemy_defeated(_enemy: Node) -> void:
+	enemy_attack_finished(_enemy)
 	kills += 1
 	_gain_flow()
 	if reviving:
@@ -135,24 +160,43 @@ func enemy_defeated(_enemy: Node) -> void:
 			player.invulnerability = 1.2
 			notify("RETURN COMPLETE / neural signal restored", 3.0)
 			audio.tone(720.0, 0.28, 0.2)
+	_activate_room()
 	if remaining_enemies() == 0:
 		_clear_room()
 
-func _gain_flow() -> void:
-	if flow_stage >= TrialRules.FLOW_KILLS.size():
+func request_enemy_attack(enemy: Node) -> bool:
+	if enemy.dead or not enemy.active:
+		return false
+	if is_instance_valid(enemy_attack_owner) or enemy_attack_cooldown > 0.0:
+		return false
+	enemy_attack_owner = enemy
+	return true
+
+func enemy_attack_finished(enemy: Node) -> void:
+	if enemy_attack_owner != enemy:
 		return
-	if flow_kills == 0:
-		flow_time = TrialRules.FLOW_WINDOWS[flow_stage]
-	flow_kills += 1
-	if flow_kills >= TrialRules.FLOW_KILLS[flow_stage]:
-		flow_stage += 1
-		flow_kills = 0
-		flow_time = 0.0
-		notify("FLOW %02d / movement amplified +%d%%" % [flow_stage, roundi((TrialRules.FLOW_SPEED[flow_stage] - 1) * 100)], 3.0)
-		audio.tone(420.0 + flow_stage * 180, 0.22, 0.2)
+	enemy_attack_owner = null
+	enemy_attack_cooldown = ENEMY_ATTACK_COOLDOWN
+
+func _gain_flow(kills_gained: int = 1) -> void:
+	var kills_remaining := maxi(0, kills_gained)
+	while kills_remaining > 0 and flow_stage < TrialRules.FLOW_KILLS.size():
+		if flow_kills == 0:
+			flow_time = TrialRules.FLOW_WINDOWS[flow_stage]
+		var kills_needed: int = int(TrialRules.FLOW_KILLS[flow_stage]) - flow_kills
+		var credited: int = mini(kills_remaining, kills_needed)
+		flow_kills += credited
+		kills_remaining -= credited
+		if flow_kills >= TrialRules.FLOW_KILLS[flow_stage]:
+			flow_stage += 1
+			flow_kills = 0
+			flow_time = 0.0
+			notify("FLOW %02d / movement + attack speed +%d%%" % [flow_stage, roundi((TrialRules.FLOW_SPEED[flow_stage] - 1) * 100)], 3.0)
+			audio.tone(420.0 + flow_stage * 180, 0.22, 0.2)
 
 func flow_interrupted() -> void:
-	# A hit breaks the current chain; earned stages survive damage and timeouts.
+	# Actual health damage removes every earned Flow bonus.
+	flow_stage = 0
 	flow_kills = 0
 	flow_time = 0.0
 

@@ -159,10 +159,10 @@ func _draw_gameplay() -> void:
 	_bar(Vector2(43, 683), 246, player.stamina / 100.0, muted, 3)
 	# Flow stage is persistent, the active streak window is not.
 	canvas.draw_rect(Rect2(448, 614, 384, 82), dark)
-	_label(Vector2(468, 641), "FLOW %02d" % game.flow_stage, 18, cyan)
-	_label(Vector2(657, 641), "SPEED +%d%%" % roundi((TrialRules.FLOW_SPEED[game.flow_stage] - 1) * 100), 14, muted)
+	_label(Vector2(468, 641), "FLOW %02d / %02d" % [game.flow_stage, TrialRules.FLOW_KILLS.size()], 18, cyan)
+	_label(Vector2(657, 641), "MOVE / ATTACK +%d%%" % roundi((TrialRules.FLOW_SPEED[game.flow_stage] - 1) * 100), 14, muted)
 	var flow_text := "MAXIMUM ADAPTATION"
-	if game.flow_stage < 3:
+	if game.flow_stage < TrialRules.FLOW_KILLS.size():
 		flow_text = "%d / %d KILLS" % [game.flow_kills, TrialRules.FLOW_KILLS[game.flow_stage]]
 		flow_text += "   /   %.1fs" % game.flow_time if game.flow_time > 0 else "   /   FIRST KILL STARTS WINDOW"
 	_label(Vector2(468, 670), flow_text, 12)

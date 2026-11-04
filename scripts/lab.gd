@@ -222,15 +222,22 @@ func spawn_pickup(id: String, pos: Vector3, remaining: float = -1.0) -> LabPicku
 
 func _spawn_subjects() -> void:
 	var positions := [
-		[Vector3(-5, 0.1, -4), Vector3(5, 0.1, -4), Vector3(0, 0.1, -7)],
-		[Vector3(-2, 0.1, -23), Vector3(3, 0.1, -24), Vector3(-4, 0.1, -28), Vector3(4, 0.1, -32), Vector3(0, 0.1, -33)],
-		[Vector3(-5, 0.1, -47), Vector3(4, 0.1, -47), Vector3(0, 0.1, -50), Vector3(-6, 0.1, -54), Vector3(5, 0.1, -56), Vector3(0, 0.1, -57)]
+		[Vector3(-5, 0.1, -4), Vector3(5, 0.1, -4), Vector3(0, 0.1, -7),
+			Vector3(-2, 0.1, 1), Vector3(2, 0.1, 1), Vector3(-5, 0.1, -7), Vector3(5, 0.1, -7)],
+		[Vector3(-2, 0.1, -23), Vector3(3, 0.1, -24), Vector3(-4, 0.1, -28),
+			Vector3(4, 0.1, -32), Vector3(0, 0.1, -33), Vector3(0, 0.1, -20),
+			Vector3(-6, 0.1, -21), Vector3(6, 0.1, -27), Vector3(0, 0.1, -29),
+			Vector3(-6, 0.1, -34), Vector3(6, 0.1, -34)],
+		[Vector3(-5, 0.1, -47), Vector3(4, 0.1, -47), Vector3(0, 0.1, -50),
+			Vector3(-6, 0.1, -54), Vector3(5, 0.1, -56), Vector3(0, 0.1, -57),
+			Vector3(0, 0.1, -44)]
 	]
 	for room in positions.size():
 		for pos in positions[room]:
 			var enemy := LabEnemy.new()
 			enemy.game = game
 			enemy.room_index = room
+			enemy.spawn_position = pos
 			add_child(enemy)
 			enemy.position = pos
 

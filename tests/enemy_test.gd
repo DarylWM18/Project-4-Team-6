@@ -22,14 +22,23 @@ func _run() -> void:
 	game.player.position = Vector3(0, 0.05, 6)
 	game.player.equip("tray", 150)
 	game.player.blocking = true
-	var subject: Node = get_nodes_in_group("enemies")[0]
+	var active_subjects: Array[Node] = []
+	for enemy in get_nodes_in_group("enemies"):
+		if enemy.active:
+			active_subjects.append(enemy)
+	check(active_subjects.size() == game.MAX_ACTIVE_ENEMIES,
+		"only three enemies are active at once")
+	var subject: Node = active_subjects[0]
+	var rival: Node = active_subjects[1]
 	for enemy in get_nodes_in_group("enemies"):
 		enemy.active = enemy == subject
+	rival.set_physics_process(false)
 	subject.position = Vector3(0, 0.05, 0)
 	var saw_windup := false
 	var saw_lunge := false
 	var saw_recovery := false
 	var routed_around_bench := false
+	var blocked_second_attacker := false
 	for frame in 900:
 		game.player.look_at(Vector3(subject.position.x, game.player.position.y, subject.position.z))
 		await physics_frame
@@ -38,12 +47,29 @@ func _run() -> void:
 		saw_windup = saw_windup or subject.state == "windup"
 		saw_lunge = saw_lunge or subject.state == "lunge"
 		saw_recovery = saw_recovery or subject.state == "recover"
+		if subject.state == "windup" and not blocked_second_attacker:
+			rival.active = true
+			blocked_second_attacker = not game.request_enemy_attack(rival)
+			rival.active = false
 		if saw_recovery:
 			break
 	check(routed_around_bench, "AI navigates around the solid workbench")
 	check(saw_windup and saw_lunge and saw_recovery, "AI completes windup, lunge and recovery states")
 	check(game.player.health < 100 and game.player.health > 95, "a frontal tray block mitigates the real AI attack")
 	check(game.player.integrity == 132, "the real AI attack consumes guard integrity once")
+	check(blocked_second_attacker and game.enemy_attack_owner == subject,
+		"a second enemy cannot attack while another owns the attack sequence")
+	for frame in 120:
+		await physics_frame
+		if not is_instance_valid(game.enemy_attack_owner):
+			break
+	check(not is_instance_valid(game.enemy_attack_owner) and game.enemy_attack_cooldown > 0.0,
+		"finishing an attack starts the shared cooldown")
+	rival.active = true
+	check(not game.request_enemy_attack(rival), "another enemy must wait during the shared cooldown")
+	game._process(game.ENEMY_ATTACK_COOLDOWN + 0.1)
+	check(game.request_enemy_attack(rival), "another enemy can attack after the shared cooldown")
+	game.enemy_attack_finished(rival)
 	check(game.state == "playing", "trial remains playable")
 	paused = false
 	game.queue_free()
@@ -52,5 +78,5 @@ func _run() -> void:
 	# Allow the audio mixer to release its last playback references on shutdown.
 	await create_timer(0.25).timeout
 	if failures.is_empty():
-		print("PASS: enemy pursuit, obstacle routing, telegraph, lunge, directional guard and recovery")
+		print("PASS: enemy pursuit, attack coordination, shared cooldown, telegraph, guard and recovery")
 	quit(0 if failures.is_empty() else 1)
